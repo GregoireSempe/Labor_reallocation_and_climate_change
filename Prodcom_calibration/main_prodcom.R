@@ -8,7 +8,16 @@ library(openxlsx) # writting xlsx results
 
 prodcom_2017_QNTUNIT = read_xlsx("Prodcom_calibration/data/Prodcom_data_2017.xlsx", 
                                  sheet = "QNTUNIT")
+prodcom_2017_impexp = read_xlsx("Prodcom_calibration/data/Prodcom_data_2017.xlsx", 
+                                 sheet = "TRADE") %>%
+  mutate(across(indicators, ~ str_split_fixed(.x, " -",2)[,1])) %>%
+  rename(PRCCODE = indicators) %>%
+  rename(prodcom_digit_8_code = PRCCODE) %>%
+  arrange(prodcom_digit_8_code)
+
+
 prodcom_2017 = read_xlsx("Prodcom_calibration/data/Prodcom_data_2017.xlsx") %>% 
+  bind_rows(prodcom_2017_imports) %>%
   select(-DECL, -PERIOD) %>%
   rename(prodcom_digit_8_code = PRCCODE) %>%
   distinct() %>%
@@ -22,7 +31,14 @@ prodcom_2017 = read_xlsx("Prodcom_calibration/data/Prodcom_data_2017.xlsx") %>%
               select(PRCCODE, Value) %>%
               rename(prodcom_digit_8_code = PRCCODE, 
                      QNTUNIT = Value)) %>%
-  select(-PRCCODE_LABEL)
+  select(-PRCCODE_LABEL) %>%
+  left_join(prodcom_2017_impexp) %>%
+  arrange(prodcom_digit_8_code) %>%
+  relocate("QNTUNIT", .after = EXPVAL) %>%
+  group_by(prodcom_digit_8_code) %>%
+  fill(PRODVAL:QNTUNIT, .direction = "updown") %>%
+  distinct() %>%
+  ungroup()
 
 # Values are in million euros
 
@@ -77,7 +93,11 @@ Approximate_carbon_emissions <- read_excel("Prodcom_calibration/data/Approximate
   distinct
 #unit: tCO2eq
 
-
+prodcom_2017 %>%
+  mutate(cons = PRODVAL - EXPVAL + IMPVAL) %>%
+  filter(cons > 0)
+  select(cons) %>%
+  summary
 # Printing output in xlsx format -----
 
 prodcom_2017 %>%
@@ -86,4 +106,5 @@ prodcom_2017 %>%
   write.xlsx("Prodcom_calibration/ProdCom_and_MatContent.xlsx")
 
 Approximate_carbon_emissions %>%
+  rename(`10% least emissive installations 2016-2017` = `10% more efficient 2016-2017`) %>%
   write.xlsx("Prodcom_calibration/carbon_emissions_MatContent.xlsx")
