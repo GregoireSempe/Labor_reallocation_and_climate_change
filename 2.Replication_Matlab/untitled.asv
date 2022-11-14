@@ -1,0 +1,32 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% Preliminary Statistics
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+function [MODEL] = simu_fun_statistics(data,sortvar)
+
+
+%% Income:
+[sortvar_by_sortvar, idx_sortvar] = sort(sortvar);            % y_t + (1+r)*a_t
+
+data_by_sortvar  = data(idx_sortvar);
+
+
+sortvar_deciles   = kron(eye(10),ones(size(income_by_income,1)/10,1)); 
+sortvar_deciles   = permute(repmat(income_deciles,1,1,1),[1 3 2]);     % moves columns into 3rd dimension
+sortvar_quintiles = income_deciles(:,:,1:2:9)+ income_deciles(:,:,2:2:10);
+
+MODEL.means.data  = sum(data)./size(data,1);
+
+MODEL.means.income_deciles.income      = (squeeze(sum(repmat(income_by_income,1,1,10).*income_deciles)./sum(income_deciles)));
+MODEL.means.income_deciles.earnings    = (squeeze(sum(repmat(earnings_by_income,1,1,10).*income_deciles)./sum(income_deciles)));
+MODEL.means.income_deciles.wealth      = (squeeze(sum(repmat(wealth_by_income,1,1,10).*income_deciles)./sum(income_deciles)));
+MODEL.means.income_deciles.durables    = (squeeze(sum(repmat(durables_by_income,1,1,10).*income_deciles)./sum(income_deciles)));
+MODEL.means.income_deciles.finwealth   = (squeeze(sum(repmat(finwealth_by_income,1,1,10).*income_deciles)./sum(income_deciles)));
+MODEL.means.income_deciles.MPC         = (squeeze(sum(repmat(MPC_by_income,1,1,10).*income_deciles)./sum(income_deciles)));
+
+
+
+
+
+
+end % simu_fun_...
+

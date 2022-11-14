@@ -1,0 +1,244 @@
+% This code produces all the welfare results using one solution of the
+% model
+% clear;
+% fprintf('Running: Compute_welfare_results\n');
+%~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+% LOAD IN THE MINIMAL SET OF OBJECTS TO SOLVE THE MODEL:
+% load('Created_mat_files/baseline_no_tax','param','glob','mu_ij','z_ij','Mj','theta','eta');
+options.surf_plot   = 'N';
+
+
+
+%% Parameters
+par = load("cal_raw_mat_distrib.mat");
+
+% steel_content_intensity	aluminium_content_intensity	paper_content_intensity	cement_content_intensity
+
+% Deflator 
+[data,txt,raw] = xlsread('Input_data_files/prodcom_input_matlab.xlsx');  % data; empty fields will be -9999
+    
+
+
+
+%% Parameters
+
+% load parameters from estimation of Berger et al (2022)
+% load('Created_mat_files/baseline_no_tax','param','glob','z_ij','Mj','theta','eta','Mj_max','J','xi','Delta','R');
+% load('Created_mat_files/baseline_no_tax_correct_mu','mu_ij'); % mu_ij corrected for tau_ij
+
+
+
+
+% Corpporate tax shock parameters to correctly normalise z_ij
+share_ccorp    = 0;         % No C-corps
+tauC_shock_size= 0;            % No corporate tax shock
+tauC           = 0;            % No corporate tax
+lambdaK 	   = 0;            % No distinction between Ccorp and non-Ccorp
+
+% carbon emission related parameters
+% par_tau_CO2 = 0;
+
+% steel_content_intensity	aluminium_content_intensity	paper_content_intensity	cement_content_intensity
+mu = [par.mu_i par.mu_a par.mu_p par.mu_c];
+sigma = [par.sigma_i par.sigma_a par.sigma_p par.sigma_c];
+
+%% 1. DRAW RANDOM VARIABLES (again)
+
+% FIX SEED
+rng('default'); % !! make sure that it's the same seed as the one used to generate z_ij !!
+
+
+% 1.1  Draw firm level productivities z_ij_notilde
+z_ij_notilde  = zeros(Mj_max,J); % Productivity draws
+for jj=1:J
+    z_ij_notilde(1:Mj(jj),jj) = random('Lognormal',1,xi,[1,Mj(jj)]); % xi is the standard deviation of the lognormal
+end  
+% Recover the "\tilde{z}_ij" which is ALWAYS z_ij in the code
+% We keep the underlying 'no tilde' productivities as z_ij_notilde.
+
+
+% 1.2 translate productivities into carbon intensities
+
+% get pdf(z_ij_notilde)
+z_ij_pdf = zeros(size(z_ij_notilde));
+for jj = 1:J
+z_ij_pdf(1:Mj(jj),jj) = logncdf(z_ij_notilde(1:Mj(jj),jj),1,xi); 
+end
+
+% assign energy efficiency based on pdf(z_ij_notilde)
+carb_ijr = zeros(Mj_max,J,size(mu,2)); % there are 4 categories for raw materials.
+for ic = 1:size(mu,2)
+for jj = 1:J
+    carb_ijr(1:Mj(jj),jj,ic) = logninv(z_ij_pdf(1:Mj(jj),jj),mu(ic),sigma(ic));
+end
+end
+
+% draw a random sector for each firm:
+assign_sector = randi([1 size(data,1)],Mj_max,J);
+
+
+% 1.3  Effective tax rate
+
+% compute tau_ij based on a) energy efficiency and b) assigned sector
+tau_ij = zeros(Mj_max,J); 
+c_int_ij = zeros(Mj_max,J); 
+for jj = 1:J
+    sec = assign_sector(1:Mj(jj),jj); % assigned sectors
+    carb_int = sum(squeeze(carb_ijr(1:Mj(jj),jj,:)).*data(sec,2:end),2);
+    if Mj(jj)==1
+       carb_int = sum(squeeze(carb_ijr(1:Mj(jj),jj,:))'.*data(sec,2:end));
+    end
+
+    tau_ij(1:Mj(jj),jj) = par_tau_CO2.*carb_int./data(sec,1);
+    c_int_ij(1:Mj(jj),jj) = carb_int./data(sec,1);
+
+end
+
+
+
+%% Definition of (additional) variables
+% these variables are necessary to run the code below with minimal
+% adjustments while including the tax
+
+vareps_ij = (1-tau_ij);
+
+z_hat_aux = z_ij_notilde.*(1-tau_ij); % auxiliary variable to compute z_ij_hat
+c_ij  = zeros(Mj_max,J); %no C-corps in economy
+z_ij  = zeros(Mj_max,J); % \tilde{z}_{ij} (!)
+z_ij_hat = zeros(Mj_max,J);
+for jj = (1:J)
+    z_ij(1:Mj(jj),jj)=(c_ij(1:Mj(jj),jj)==1).*(1-Delta)*(Delta*(1-tauC)/((1-tauC*lambdaK)*R)).^(Delta/(1-Delta)).*z_ij_notilde(1:Mj(jj),jj).^(1/(1-Delta))...   % Ccorp
+                     +(c_ij(1:Mj(jj),jj)==0).*(1-Delta)*(Delta/R).^(Delta/(1-Delta)).*z_ij_notilde(1:Mj(jj),jj).^(1/(1-Delta)) ;                                % Non-Corp
+
+    z_ij_hat(1:Mj(jj),jj)=(c_ij(1:Mj(jj),jj)==1).*(1-Delta)*(Delta*(1-tauC)/((1-tauC*lambdaK)*R)).^(Delta/(1-Delta)).*z_hat_aux(1:Mj(jj),jj).^(1/(1-Delta))...   % Ccorp
+                     +(c_ij(1:Mj(jj),jj)==0).*(1-Delta)*(Delta/R).^(Delta/(1-Delta)).*z_hat_aux(1:Mj(jj),jj).^(1/(1-Delta)) ;                                % Non-Corp
+
+end
+
+% pack into mesh to move into function later
+addvar.z_ij_hat = z_ij_hat;
+addvar.vareps_ij = vareps_ij;
+
+%% Storage
+
+
+% run twice, once for no carbon tax and once for carbon tax
+dim1             = 1;
+dim2              = 1;
+
+varphi_mat          = zeros(dim1,dim2);
+sigma_mat           = zeros(dim1,dim2);
+
+% Exact lambda's
+lambdaE_mat         = zeros(dim1,dim2);
+lambdaE_mu_mat      = zeros(dim1,dim2);
+lambdaE_omega_mat   = zeros(dim1,dim2);
+
+% Aggregates
+N_mat               = zeros(dim1,dim2);
+Nc_mat              = zeros(dim1,dim2);
+Y_mat               = zeros(dim1,dim2);
+Yc_mat              = zeros(dim1,dim2);
+W_mat               = zeros(dim1,dim2);
+Wc_mat              = zeros(dim1,dim2);
+AveWage_mat         = zeros(dim1,dim2);
+AveWagec_mat        = zeros(dim1,dim2);
+Nbodies_mat         = zeros(dim1,dim2);
+Nbodiesc_mat        = zeros(dim1,dim2);
+
+dlogAveWage_mat     = zeros(dim1,dim2);
+dlogAggEmp_mat      = zeros(dim1,dim2);
+dHHIwn_uw_mat       = zeros(dim1,dim2);
+dHHIwn_w_mat        = zeros(dim1,dim2);
+
+% Wedges
+mu_mat              = zeros(dim1,dim2);
+omega_mat           = zeros(dim1,dim2);
+
+
+
+%% Solve baseline aggregate conditions
+param.varphi                = 0.50;
+param.sigma                 = 0;
+options.solve_scale         = 'Y';
+out                         = fun_welfare_closed_form(mu_ij,z_ij,Mj,[],[],param,glob,options,addvar);
+glob.zbar                   = out.Ztilde;       % Scale from baseline calibration
+glob.varphibar              = out.varphibar;
+mu_base                     = out.mu;
+omega_base                  = out.omega;
+% save('output/base_mu_omega','mu_base','omega_base');
+
+
+
+%% Solve for alternative (varphi,sigma), recalibrating each time
+    vv = 1;
+    ss = 1;
+    
+    param.varphi                = 0.5;
+    param.sigma                 = 0;
+    options.solve_scale         = 'Y';  % Recalibrate scale parameters to match data
+    muc                         = 1;    % Competitive eq has muc=1
+    omegac                      = 1;    % Competitive eq has omegac=1
+    out                         = fun_welfare_closed_form(mu_ij,z_ij,Mj,muc,omegac,param,glob,options,addvar);
+    
+    lambdaE_mat(vv,ss)          = out.lambdaE;
+    lambdaE_mu_mat(vv,ss)       = out.lambdaE_mu;
+    lambdaE_omega_mat(vv,ss)    = out.lambdaE_omega;
+    
+    AveWage_mat(vv,ss)          = out.AveWage;
+    AveWagec_mat(vv,ss)         = out.AveWagec;
+    Nbodies_mat(vv,ss)          = out.Nbodies;
+    Nbodiesc_mat(vv,ss)         = out.Nbodiesc;
+    
+    Y_mat(vv,ss)                = out.Y;
+    Yc_mat(vv,ss)               = out.Yc;
+    
+    N_mat(vv,ss)                = out.N;
+    Nc_mat(vv,ss)               = out.Nc;
+    
+    W_mat(vv,ss)                = out.W;
+    Wc_mat(vv,ss)               = out.Wc;
+    mu_mat(vv,ss)               = out.mu;
+    
+    dlogAveWage_mat(vv,ss)      = log(out.AveWagec/out.AveWage);
+    dlogAggEmp_mat(vv,ss)       = log(out.AggEmpc/out.AggEmp);
+    dHHIwn_uw_mat(vv,ss)        = out.HHIwnc_uw - out.HHIwn_uw;
+    dHHIwn_w_mat(vv,ss)         = out.HHIwnc_w  - out.HHIwn_w ;
+    
+    varphi_mat(vv,ss)           = param.varphi;
+    sigma_mat(vv,ss)            = param.sigma;
+    
+    mu_mat(vv,ss)               = out.mu;
+    omega_mat(vv,ss)            = out.omega;
+
+ztilde          = out.ztilde;
+Ztilde          = out.Ztilde;
+alphatilde      = out.alphatilde;
+alpha           = out.alpha;
+gamma           = out.gamma;
+
+disp(['Co2: ', num2str(par_tau_CO2)])
+disp(['Y:   ', num2str(Y_mat)]);
+disp(['N:   ', num2str(N_mat)]);
+disp(['W:   ', num2str(W_mat)]);
+disp('Done!')
+
+name = ['results/results_Co2_',num2str(par_tau_CO2)];
+save(name)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

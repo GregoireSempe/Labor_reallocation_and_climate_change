@@ -1,0 +1,109 @@
+clear;clc;
+tic
+
+%% Options (speed)
+calibrate = 0;
+
+%% A. RUN FILES
+%__________________________________________________________________________
+% CALIBRATE DISTRIBUTION OF NUMBER OF FIRMS ACROSS MARKETS
+if calibrate == 1
+calibration;
+Figure_F1B_Table_F2_Fit_Mj_Distribution_All_Ind;       
+    % (Table*) - Distribution of firms across markets, M j ~ G ( M j ) , all industries
+    % (Figure*) - Distribution of the number of firms across sectors, all industries
+    % Outputs: Nfit, Nfit_all, used in Compute_* code
+
+Compute_baseline_no_tax;                % Uses xmin_B_whole_economy.mat 
+    % Outputs: baseline_no_tax
+end
+%% solves the model:
+
+% 
+par_tau_CO2 = 0;
+% load parameters from estimation of Berger et al (2022)
+load('Created_mat_files/baseline_no_tax','param','glob','mu_ij','z_ij','Mj','theta','eta','Mj_max','J','xi','Delta','R');
+% load('Created_mat_files/baseline_no_tax_correct_mu','mu_ij'); % mu_ij corrected for tau_ij
+model;
+
+%
+clear all;
+par_tau_CO2 = 100;
+% load parameters from estimation of Berger et al (2022)
+load('Created_mat_files/baseline_no_tax','param','glob','z_ij','Mj','theta','eta','Mj_max','J','xi','Delta','R');
+load('Created_mat_files/baseline_no_tax_correct_mu','mu_ij'); % mu_ij corrected for tau_ij
+model; % with
+
+
+
+
+
+
+
+%% preliminary analysis
+clear all
+baseline = load('results/results_Co2_0','out');
+tax = load('results/results_Co2_100.mat');
+
+
+% fall in sectoral employment in %
+fall_nj = 100*(tax.out.nj-baseline.out.nj)./baseline.out.nj;
+
+% fall in sectoral wage in %
+fall_wj = 100*(tax.out.wj-baseline.out.wj)./baseline.out.wj;
+
+% sort local labor markets by carbon intensity
+[sortj_c,sortj_c_id] = sort(sum(tax.c_int_ij));
+
+% average change of the markets with the highest impact
+
+
+
+
+figure_style_template;
+figure(1)
+f51a_bar = [fall_nj(sortj_c_id)];
+
+bar(f51a_bar)
+
+% xticks([1 2 3 4])
+% xticklabels({'top 10%','80% - 90%','60% - 80%','bottom 60%'})
+ylabel('share of households with business wealth')
+xlabel('income distribution')
+
+% legend(style_FFM{1}, style_SCF{2}, etc.)
+subtitle('a) Extensive Margin')
+
+
+% aggregate intensity
+
+
+% [~,id]=sort(baseline.out.nj');
+% % [out.nj(id)' out.varepsj(id)' out.ztildej(id)']
+% tax_burden =sum(tax.tau_ij)';
+% [~,id]=sort(tax_burden);
+% [100*(baseline.out.nj(id)'-tax.out.nj(id)')./baseline.out.nj(id)' tax_burden(id)]
+% 
+% 
+% 
+% 
+% % the data we care about
+% nj_pre
+% nj_post
+% 
+% wj_pre
+% wj_post
+% 
+% yj_pre
+% yj_post
+% 
+% N_pre
+% N_post
+% 
+% Y_pre
+% Y_post
+
+
+
+
+toc
