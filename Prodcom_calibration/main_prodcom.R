@@ -3,23 +3,26 @@
 library(tidyverse)
 library(readxl)
 library(openxlsx) # writting xlsx results
-
+library(R.matlab)
 
 carbon_tax = 100 # € per ton of CO2eq
 
-# Reading the prodcom database
+# Reading the prodcom database ------- 
 
 prodcom_2017_QNTUNIT = read_xlsx("Prodcom_calibration/data/Prodcom_data_2017.xlsx", 
-                                 sheet = "QNTUNIT")
+                                 sheet = "QNTUNIT") # quantities units
+
 prodcom_2017_impexp = read_xlsx("Prodcom_calibration/data/Prodcom_data_2017.xlsx", 
                                  sheet = "TRADE") %>%
   mutate(across(indicators, ~ str_split_fixed(.x, " -",2)[,1])) %>%
   rename(PRCCODE = indicators) %>%
   rename(prodcom_digit_8_code = PRCCODE) %>%
-  arrange(prodcom_digit_8_code)
+  arrange(prodcom_digit_8_code) # import and export data
+
 
 
 prodcom_2017 = read_xlsx("Prodcom_calibration/data/Prodcom_data_2017.xlsx") %>% 
+  # Production side of the prodcom database
   select(-DECL, -PERIOD) %>%
   rename(prodcom_digit_8_code = PRCCODE) %>%
   distinct() %>%
@@ -42,14 +45,10 @@ prodcom_2017 = read_xlsx("Prodcom_calibration/data/Prodcom_data_2017.xlsx") %>%
   distinct() %>%
   ungroup()
 
-# Values are in million euros
+# Careful, Values are in million euros ! 
 
 
-
-
-
-
-# Material content Prodcom ---------------------------
+# The Material content Prodcom database ---------------------------
 
 prodcom_mat_content <- read_excel("Prodcom_calibration/data/ProdCom_Material_Content_20210603.xlsx", 
                                   sheet = "IoC_MaterialContent_NACEv2") %>%
@@ -57,6 +56,7 @@ prodcom_mat_content <- read_excel("Prodcom_calibration/data/ProdCom_Material_Con
   rename(prodcom_digit_8_code = "NACEv2_Code [fields highlighted in red are not counted as they represent aggregates of already listed groups]") %>%
   rename(Prodcom_digit_8_label = NACEv2_Label)
 # renaming columns
+prodcom_mat_content_useful = prodcom_mat_content[-1,] 
 
 
 prodcom_8 = prodcom_2017 %>%
@@ -64,7 +64,6 @@ prodcom_8 = prodcom_2017 %>%
   unique() %>% 
   pull
 
-prodcom_mat_content_useful = prodcom_mat_content[-1,] 
 
 mat_content = prodcom_mat_content_useful %>%
   filter(prodcom_digit_8_code %in% prodcom_8) %>%
@@ -93,7 +92,7 @@ Approximate_carbon_emissions <- read_excel("Prodcom_calibration/data/Approximate
   drop_na((where(is.numeric))) %>%
   select(-Assumption) %>% 
   distinct
-#unit: tCO2eq
+#unit: tCO2eq / ton of product
 
 
 # Printing output in xlsx format -----
@@ -112,7 +111,8 @@ final_df = prodcom_2017 %>%
   relocate(prodcom_digit_8_label, .after = prodcom_digit_8_code) %>% 
   mutate(across(kg_per_unit, as.numeric)) %>%
   # Get quantities in tons
-  mutate(across(c(PRODQNT, EXPQNT, IMPQNT), ~ kg_per_unit * .x / 1e3)) %>%
+  mutate(across(c(PRODQNT, EXPQNT, IMPQNT), ~ kg_per_unit * .x * 1e-3)) %>%
+  mutate(across(c(PRODVAL, EXPVAL, IMPVAL), ~ .x * 1e3)) %>%
   mutate(imp_deflator = IMPVAL / IMPQNT, 
          exp_deflator = EXPVAL / EXPQNT, 
          prod_deflator = PRODVAL / PRODQNT, 
@@ -163,7 +163,8 @@ final_df = prodcom_2017 %>%
   mutate(eff_tax = carbon_tax/deflator  * emission_coef_pton ) %>%
   mutate(eff_tax_pos = ifelse(eff_tax >0, TRUE, FALSE))
 
-
+final_df %>%
+  filter(cement_content_intensity == 1)
 
 final_df %>%
   select(prodcom_digit_8_code, 
@@ -171,10 +172,22 @@ final_df %>%
          deflator, 
          contains("_content_intensity")) %>%
   drop_na(deflator) %>%
+  filter(is.finite(deflator)
+         ) %>%
+
   write.xlsx("prodcom_input_matlab.xlsx")
 
 # Plot of the biais induced by sample selection
 
+final_df %>%
+  mutate(prodcom_digit_4_code = str_sub(as.character(prodcom_digit_8_code), 1, 4)) %>%
+  group_by(prodcom_digit_4_code) %>%
+  count() %>%
+  summary
+
+final_df %>% 
+  mutate(deflator_available = ifelse(is.na(deflator_used), FALSE, TRUE)) %>%
+  count(deflator_available)
 final_df %>%
   mutate(deflator_available = ifelse(is.na(deflator_used), FALSE, TRUE)) %>%
   select(prodcom_digit_8_code, prodcom_digit_8_label,
@@ -190,12 +203,13 @@ final_df %>%
   geom_density() +
   geom_density(aes(color = deflator_available)) +
   theme_bw() + 
-  xlab("Emission coefficient (using the average emissions values)")
+  xlab("Emission coefficient per prodcom (using the EU-ETS average emissions 2016-2017)")
 
 
 # Plot the effective tax rate -----
 
 final_df %>%
+  drop_na(deflator) %>%
   mutate(deflator_available = ifelse(is.na(deflator_used), FALSE, TRUE)) %>%
   select(prodcom_digit_8_code, prodcom_digit_8_label,
          deflator,
@@ -214,9 +228,35 @@ final_df %>%
   mutate(tax_level = ifelse(tax_level == "00", "100", tax_level
                             )) %>%
   mutate(across(tax_level, ~ paste0(.x, " €/t CO2eq"))) %>%
-  ggplot(aes(x = eff_tax, 
+  ggplot(aes(x = eff_tax * 100, 
              color = tax_level)) + 
   stat_ecdf() +
-  xlim(0,1) +
+  xlim(0,0.001) +
   theme_bw() + 
   xlab("Effective tax rate")
+
+
+final_df %>%
+  drop_na(deflator) %>%
+  mutate(deflator_available = ifelse(is.na(deflator_used), FALSE, TRUE)) %>%
+  select(prodcom_digit_8_code, prodcom_digit_8_label,
+         deflator,
+         deflator_used, 
+         deflator_available, 
+         emission_coef_pton) %>%
+  mutate(eff_tax_10 = 10 / deflator * emission_coef_pton, 
+         eff_tax_25 = 25 / deflator * emission_coef_pton, 
+         eff_tax_50 = 50 / deflator * emission_coef_pton, 
+         eff_tax_75 = 75 / deflator * emission_coef_pton, 
+         eff_tax_100 = 100 / deflator * emission_coef_pton) %>%
+  pivot_longer(contains("eff_tax"), 
+               names_to = "tax_level", 
+               values_to = "eff_tax") %>%
+  mutate(tax_level = str_sub(tax_level, -2)) %>%
+  mutate(tax_level = ifelse(tax_level == "00", "100", tax_level
+  )) %>%
+  mutate(across(tax_level, ~ paste0(.x, " €/t CO2eq"))) %>%
+  filter(prodcom_digit_8_code == 23511100) %>%
+  mutate(eff_tax = eff_tax * 100)
+
+
